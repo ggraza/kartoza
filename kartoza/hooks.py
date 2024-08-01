@@ -107,7 +107,8 @@ after_migrate = [
 
 override_doctype_class = {
 	"Salary Slip": "kartoza.custom_py.salary_slip.CustomSalarySlip",
-	"Payroll Entry": "kartoza.custom_py.payroll_entry.CustomPayrollEntry"
+	"Payroll Entry": "kartoza.custom_py.payroll_entry.CustomPayrollEntry",
+	"Additional Salary": "kartoza.custom_py.additional_salary.CustomAdditionalSalary"
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 }
 
