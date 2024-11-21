@@ -97,6 +97,55 @@ class CustomSalarySlip(SalarySlip):
 			tax_row = get_salary_component_data(d)
 			self.update_component_row(tax_row, tax_amount, "deductions")
 
+	def compute_taxable_earnings_for_year(self):
+		super().compute_taxable_earnings_for_year()
+
+		self.annual_bonus = self.get_bonus_amount()
+
+		self.total_taxable_earnings += self.annual_bonus
+
+		self.total_taxable_earnings_without_full_tax_addl_components = (
+			self.total_taxable_earnings - self.current_additional_earnings_with_full_tax
+		)
+
+	def get_bonus_amount(self):
+		annual_bonus = frappe.db.get_value(
+			"Salary Structure Assignment",
+			{
+				"employee": self.employee,
+				"salary_structure": self.salary_structure,
+				"docstatus": 1,
+				"from_date": ("<=", self.end_date),
+			},
+			"annual_bonus",
+			order_by="from_date desc",
+		) or 0
+
+		if not annual_bonus:
+			return annual_bonus
+
+		bonus_component = frappe.db.get_all("Salary Component", {"disabled": False, "custom_is_annual_bonus": True})
+
+		if not bonus_component:
+			return annual_bonus
+
+		bonus_component = [i.name for i in bonus_component]
+
+		is_bonus_created = frappe.db.get_value(
+			"Additional Salary",
+				{
+					"docstatus": 1,
+					"employee": self.employee,
+					"salary_component":["in", bonus_component],
+					"company": self.company,
+					"payroll_date": ["between", [self.payroll_period.start_date, self.end_date]]
+				}
+			)
+		return annual_bonus if not is_bonus_created else 0
+
+
+
+
 	def get_tax_rebate(self):
 		tax_rebate = 0
 		dob = frappe.db.get_value("Employee", self.employee, "date_of_birth")

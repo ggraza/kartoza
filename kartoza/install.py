@@ -437,6 +437,7 @@ def make_custom_fields():
 		'Payroll Settings': [],
 		"Employee":[],
 		"Additional Salary":[],
+		"Salary Structure Assignment":[]
 	}
 
 	if not frappe.get_meta("HR Settings").get_field("amount_per_kilometer"):
@@ -459,4 +460,21 @@ def make_custom_fields():
 		custom_fields["Additional Salary"].append(dict(fieldname='is_company_contribution', label='Is Company Contribution',
 						fieldtype='Check', insert_after='column_break_8'))
 
+	if not frappe.get_meta("Salary Structure Assignment").get_field("annual_bonus"):
+		custom_fields["Salary Structure Assignment"].append(dict(fieldname="annual_bonus", label="Annual Bonus",
+						fieldtype="Currency", insert_after="base", allow_on_submit=True))
+
 	create_custom_fields(custom_fields)
+	rename_duplicate_fields(custom_fields)
+
+def rename_duplicate_fields(custom_fields):
+	from frappe.custom.doctype.custom_field.custom_field import rename_fieldname
+
+	for doctype in custom_fields:
+		for field in custom_fields[doctype]:
+			field_name = frappe.db.get_value("Custom Field", {'dt': doctype, "fieldname": field["fieldname"]})
+			custom_field_name = frappe.db.get_value("Custom Field", {'dt': doctype, "fieldname": "custom_" + field["fieldname"]})
+			if field_name and custom_field_name:
+				frappe.db.delete("Custom Field", custom_field_name)
+			elif not field_name and custom_field_name:
+				rename_fieldname(custom_field_name, field["fieldname"])
