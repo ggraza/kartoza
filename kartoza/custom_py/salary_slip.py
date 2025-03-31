@@ -903,8 +903,8 @@ def get_total_weekend_days(year_start, year_end):
 def get_tax_rebate(self, dob):
 	if isinstance(dob, str):
 		dob = datetime.strptime(dob, "%y-%m-%d")
-	today = date.today()
-	age = today.year - dob.year - ((today.month, today.day) < (dob.month, dob.day))
+	period_end_date = self.payroll_period.end_date
+	age = period_end_date.year - dob.year - ((period_end_date.month, period_end_date.day) < (dob.month, dob.day))
 	name = frappe.db.get_value(
 		"Tax Rebates Rate", {"payroll_period": self.payroll_period.name}
 	)
@@ -912,9 +912,9 @@ def get_tax_rebate(self, dob):
 		doc = frappe.get_doc("Tax Rebates Rate", name)
 		tax_rebate = (doc.primary / 12) or 0
 		if age >= 65 and age < 75:
-			return (doc.secondary / 12) or 0
+			tax_rebate += (doc.secondary / 12) or 0
 		if age >= 75:
-			tax_rebate = (doc.tertiary / 12) or 0
+			tax_rebate += (doc.tertiary / 12) or 0
 		return tax_rebate
 	return 0
 
