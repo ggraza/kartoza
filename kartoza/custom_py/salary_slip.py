@@ -911,10 +911,12 @@ def get_tax_rebate(self, dob):
 	if name:
 		doc = frappe.get_doc("Tax Rebates Rate", name)
 		tax_rebate = (doc.primary / 12) or 0
-		if age >= 65 and age < 75:
+
+		if age >= 65:
 			tax_rebate += (doc.secondary / 12) or 0
-		if age >= 75:
-			tax_rebate += (doc.tertiary / 12) or 0
+			if age >= 75:
+				tax_rebate += (doc.tertiary / 12) or 0
+
 		return tax_rebate
 	return 0
 
