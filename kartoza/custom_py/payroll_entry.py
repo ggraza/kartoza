@@ -11,7 +11,7 @@ from frappe.query_builder.functions import Coalesce, Count
 from frappe.utils import (DATE_FORMAT, add_days, add_to_date, cint, comma_and,
 						  date_diff, flt, get_link_to_form, getdate)
 from hrms.payroll.doctype.payroll_entry.payroll_entry import (
-	PayrollEntry, _, create_salary_slips_for_employees)
+	PayrollEntry, _, create_salary_slips_for_employees, get_employee_list)
 from hrms.payroll.doctype.payroll_period.payroll_period import \
 	get_payroll_period
 
@@ -88,8 +88,10 @@ class CustomPayrollEntry(PayrollEntry):
 
 	@frappe.whitelist()
 	def fill_employee_details(self):
+		filters = self.make_filters()
+		employees = get_employee_list(filters=filters, as_dict=True, ignore_match_conditions=True)
 		self.set("employees", [])
-		employees = self.get_emp_list()
+
 		if not employees:
 			error_msg = _(
 				"No employees found for the mentioned criteria:<br>Company: {0}<br> Currency: {1}<br>Payroll Payable Account: {2}"

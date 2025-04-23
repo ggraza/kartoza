@@ -4,14 +4,15 @@ from datetime import date, datetime, timedelta
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Count, Sum
 from frappe.utils import (
 	add_days,
 	cint,
 	date_diff,
 	flt,
 	get_link_to_form,
-	month_diff,
 	getdate,
+	month_diff,
 )
 from hrms.payroll.doctype.employee_benefit_application.employee_benefit_application import (
 	get_benefit_component_amount,
@@ -23,12 +24,17 @@ from hrms.payroll.doctype.payroll_period.payroll_period import (
 	get_payroll_period,
 	get_period_factor,
 )
-from frappe.query_builder.functions import Count, Sum
 from hrms.payroll.doctype.salary_slip.salary_slip import (
 	SalarySlip,
 	calculate_tax_by_tax_slab,
 	get_salary_component_data,
 	rounded,
+)
+from hrms.payroll.doctype.salary_slip.salary_slip_loan_utils import (
+	cancel_loan_repayment_entry,
+	make_loan_repayment_entry,
+	process_loan_interest_accruals,
+	set_loan_repayment,
 )
 from kartoza.custom_py.payroll_entry import (
 	get_current_block_period,
@@ -171,16 +177,15 @@ class CustomSalarySlip(SalarySlip):
 
 	def calculate_component_amounts(self, component_type):
 		if not getattr(self, "_salary_structure_doc", None):
-			self._salary_structure_doc = frappe.get_doc(
-				"Salary Structure", self.salary_structure
-			)
+			self.set_salary_structure_doc()
 
 		self.add_structure_components(component_type)
+		self.add_additional_salary_components(component_type)
+
 		if component_type == "earnings":
 			self.add_employee_benefits()
 		else:
 			self.add_tax_components()
-		self.add_additional_salary_components(component_type)
 
 	def add_additional_salary_components(self, component_type):
 		additional_salaries = get_additional_salaries(
@@ -196,7 +201,13 @@ class CustomSalarySlip(SalarySlip):
 				is_recurring=additional_salary.is_recurring,
 			)
 
-	def calculate_net_pay(self):
+	def calculate_net_pay(self, skip_tax_breakup_computation: bool = False):
+		def set_gross_pay_and_base_gross_pay():
+			self.gross_pay = self.get_component_totals("earnings", depends_on_payment_days=1)
+			self.base_gross_pay = flt(
+				flt(self.gross_pay) * flt(self.exchange_rate), self.precision("base_gross_pay")
+			)
+
 		# self.payroll_period = frappe.db.get_value('Payroll Period', {"start_date": ("<=", self.start_date),
 		# "end_date": (">=", self.end_date), "company": self.company })
 
@@ -208,37 +219,35 @@ class CustomSalarySlip(SalarySlip):
 		# get remaining numbers of sub-period (period for which one salary is processed)
 		if self.payroll_period:
 			# self.payroll_period_ = self.payroll_period.name
-			self.remaining_sub_periods = get_remaining_sub_periods(
+			self.remaining_sub_periods = get_period_factor(
 				self.employee,
 				self.start_date,
 				self.end_date,
 				self.payroll_frequency,
 				self.payroll_period,
-			)
+				joining_date=self.joining_date,
+				relieving_date=self.relieving_date,
+			)[1]
 
-		self.gross_pay = self.get_component_totals(
-			"earnings", depends_on_payment_days=1
-		)
-		self.base_gross_pay = flt(
-			flt(self.gross_pay) * flt(self.exchange_rate),
-			self.precision("base_gross_pay"),
-		)
+		set_gross_pay_and_base_gross_pay()
 
 		if self.salary_structure:
 			self.calculate_component_amounts("deductions")
 
-		self.set_loan_repayment()
+		set_loan_repayment()
+
 		self.set_precision_for_component_amounts()
 		self.set_net_pay()
-		self.compute_income_tax_breakup()
+		if not skip_tax_breakup_computation:
+			self.compute_income_tax_breakup()
 
 		current_eti_amount = get_eti_deduction(self) or 0
 
-		amount_before_eti_deduction = 0
+		# amount_before_eti_deduction = 0
 		# amount_after_eti_deduction=0
 
 		tax_amount = self.tax_value or 0
-		amount_before_eti_deduction = tax_amount
+		# amount_before_eti_deduction = tax_amount
 		tax_amount -= current_eti_amount
 		# amount_after_eti_deduction = current_eti_amount - amount_before_eti_deduction
 
@@ -251,8 +260,10 @@ class CustomSalarySlip(SalarySlip):
 		additional_contribution = get_additional_salaries(self.employee, self.start_date, self.end_date, "company_contributions")
 		company_contribution_dict = {}
 		data = self.get_data_for_eval()
-		if type(data) == tuple:
+
+		if isinstance(data, tuple):
 			data = data[0]
+
 		for component in salary_structure_doc.company_contribution:
 			component.name = None
 			component.amount = self.eval_condition_and_formula(component, data)
@@ -267,7 +278,7 @@ class CustomSalarySlip(SalarySlip):
 			else:
 				self.append("company_contribution", {
 					"salary_component": contribution.component,
-                    "amount": contribution.amount
+					"amount": contribution.amount
 				})
 
 		total_company_contribution = 0
@@ -297,7 +308,7 @@ class CustomSalarySlip(SalarySlip):
 
 		# Structured tax amount
 		eval_locals, default_data = self.get_data_for_eval()
-		self.total_structured_tax_amount = calculate_tax_by_tax_slab(
+		self.total_structured_tax_amount, __ = calculate_tax_by_tax_slab(
 			self.total_taxable_earnings_without_full_tax_addl_components,
 			self.tax_slab,
 			self.whitelisted_globals,
@@ -312,7 +323,7 @@ class CustomSalarySlip(SalarySlip):
 		# Total taxable earnings with additional earnings with full tax
 		self.full_tax_on_additional_earnings = 0.0
 		if self.current_additional_earnings_with_full_tax:
-			self.total_tax_amount = calculate_tax_by_tax_slab(
+			self.total_tax_amount, __ = calculate_tax_by_tax_slab(
 				self.total_taxable_earnings,
 				self.tax_slab,
 				self.whitelisted_globals,
@@ -419,31 +430,43 @@ class CustomSalarySlip(SalarySlip):
 		return taxable_income
 
 	def get_working_days_details(
-		self, joining_date=None, relieving_date=None, lwp=None, for_preview=0
+		self, lwp=None, for_preview=0
 	):
-		payroll_based_on = frappe.db.get_value(
-			"Payroll Settings", None, "payroll_based_on"
-		)
-		include_holidays_in_total_working_days = frappe.db.get_single_value(
-			"Payroll Settings", "include_holidays_in_total_working_days"
+		payroll_settings = frappe.get_cached_value(
+			"Payroll Settings",
+			None,
+			(
+				"payroll_based_on",
+				"include_holidays_in_total_working_days",
+				"consider_marked_attendance_on_holidays",
+				"daily_wages_fraction_for_half_day",
+				"consider_unmarked_attendance_as",
+			),
+			as_dict=1,
 		)
 
-		if not (joining_date and relieving_date):
-			joining_date, relieving_date = self.get_joining_and_relieving_dates()
+		consider_marked_attendance_on_holidays = (
+			payroll_settings.include_holidays_in_total_working_days
+			and payroll_settings.consider_marked_attendance_on_holidays
+		)
 
-		# if self.payroll_period:
-		# payroll_period=frappe.db.get_value("Payroll Period",self.payroll_period,['start_date','end_date'],as_dict=True)
-		if type(self.start_date) == str:
+		daily_wages_fraction_for_half_day = flt(payroll_settings.daily_wages_fraction_for_half_day) or 0.5
+
+		if not self.start_date or not self.end_date:
+			self.get_date_details()
+
+		if isinstance(self.start_date, str):
 			self.start_date = datetime.strptime(self.start_date, "%Y-%m-%d").date()
-		if type(self.end_date) == str:
+		if isinstance(self.end_date, str):
 			self.end_date = datetime.strptime(self.end_date, "%Y-%m-%d").date()
+
+		# working_days = date_diff(self.end_date, self.start_date) + 1
 		start_date = self.start_date.replace(month=1).replace(day=1)
 		end_date = self.end_date.replace(month=12).replace(day=31)
 		total_no_days = get_total_days(start_date, end_date + timedelta(days=1))
 		total_no_weekend_days = get_total_weekend_days(start_date, end_date)
 		working_days = (total_no_days - total_no_weekend_days) / 12
-		# else:
-		# 	working_days = date_diff(self.end_date, self.start_date) + 1
+
 		working_days_list = [
 			add_days(self.start_date, i) for i in range(math.ceil(working_days))
 		]
@@ -455,26 +478,24 @@ class CustomSalarySlip(SalarySlip):
 
 		holidays = self.get_holidays_for_employee(self.start_date, self.end_date)
 
-		if not cint(include_holidays_in_total_working_days):
+		if not cint(payroll_settings.include_holidays_in_total_working_days):
 			# working_days_list = [i for i in working_days_list if i not in holidays]
 
 			# working_days -= len(holidays)
 			if working_days < 0:
 				frappe.throw(_("There are more holidays than working days this month."))
 
-		if not payroll_based_on:
+		if not payroll_settings.payroll_based_on:
 			frappe.throw(_("Please set Payroll based on in Payroll settings"))
 
-		if payroll_based_on == "Attendance":
-			actual_lwp, absent = (
-				self.calculate_lwp_ppl_and_absent_days_based_on_attendance(
-					holidays, relieving_date
-				)
+		if payroll_settings.payroll_based_on == "Attendance":
+			actual_lwp, absent = self.calculate_lwp_ppl_and_absent_days_based_on_attendance(
+				holidays, daily_wages_fraction_for_half_day, consider_marked_attendance_on_holidays
 			)
 			self.absent_days = absent
 		else:
 			actual_lwp = self.calculate_lwp_or_ppl_based_on_leave_application(
-				holidays, working_days_list, relieving_date
+				holidays, working_days_list, daily_wages_fraction_for_half_day
 			)
 
 		if not lwp:
@@ -482,36 +503,29 @@ class CustomSalarySlip(SalarySlip):
 		elif lwp != actual_lwp:
 			frappe.msgprint(
 				_("Leave Without Pay does not match with approved {} records").format(
-					payroll_based_on
+					payroll_settings.payroll_based_on
 				)
 			)
 
 		self.leave_without_pay = lwp
 		self.total_working_days = working_days
 
-		payment_days = self.get_payment_days(
-			joining_date, relieving_date, include_holidays_in_total_working_days
-		)
+		payment_days = self.get_payment_days(payroll_settings.include_holidays_in_total_working_days)
 
 		if flt(payment_days) > flt(lwp):
 			self.payment_days = flt(payment_days) - flt(lwp)
 
-			if payroll_based_on == "Attendance":
+			if payroll_settings.payroll_based_on == "Attendance":
 				self.payment_days -= flt(absent)
 
-			consider_unmarked_attendance_as = (
-				frappe.db.get_value(
-					"Payroll Settings", None, "consider_unmarked_attendance_as"
-				)
-				or "Present"
-			)
+			consider_unmarked_attendance_as = payroll_settings.consider_unmarked_attendance_as or "Present"
 
 			if (
-				payroll_based_on == "Attendance"
+				payroll_settings.payroll_based_on == "Attendance"
 				and consider_unmarked_attendance_as == "Absent"
 			):
 				unmarked_days = self.get_unmarked_days(
-					include_holidays_in_total_working_days
+					payroll_settings.include_holidays_in_total_working_days, holidays
 				)
 				self.absent_days += unmarked_days  # will be treated as absent
 				self.payment_days -= unmarked_days
@@ -596,7 +610,8 @@ class CustomSalarySlip(SalarySlip):
 			taxable_earnings + opening_taxable_earning
 		) - exempted_amount - ra, exempted_amount
 
-	def get_amount_based_on_payment_days(self, row, joining_date, relieving_date):
+	def get_amount_based_on_payment_days(self, row):
+		# use flt for rounding the total_working_days as it calculated based on year
 		amount, additional_amount = row.amount, row.additional_amount
 		timesheet_component = frappe.db.get_value(
 			"Salary Structure", self.salary_structure, "salary_component"
@@ -611,8 +626,8 @@ class CustomSalarySlip(SalarySlip):
 			)  # to identify overwritten additional salary
 			and (
 				row.salary_component != timesheet_component
-				or getdate(self.start_date) < joining_date
-				or (relieving_date and getdate(self.end_date) > relieving_date)
+				or getdate(self.start_date) < self.joining_date
+				or (self.relieving_date and getdate(self.end_date) > self.relieving_date)
 			)
 		):
 			additional_amount = flt(
@@ -649,10 +664,11 @@ class CustomSalarySlip(SalarySlip):
 			"Salary Component", row.salary_component, "round_to_the_nearest_integer"
 		):
 			amount, additional_amount = rounded(amount or 0), rounded(
-				additional_amount or 0
+					additional_amount or 0
 			)
 
 		return amount, additional_amount
+
 
 	def on_submit(self):
 		super().on_submit()
