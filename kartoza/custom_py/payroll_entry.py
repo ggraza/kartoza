@@ -443,7 +443,6 @@ class CustomPayrollEntry(PayrollEntry):
 			else:
 				employee_type_map[row.custom_employee_type] = [row]
 
-
 		return employee_type_map
 
 	def update_reference(self, jv):
@@ -465,7 +464,7 @@ class CustomPayrollEntry(PayrollEntry):
 				if employee_type:
 					frappe.db.set_value(i.doctype, i.name, 'employee_type', employee_type)
 
-	def make_accrual_jv_entry(self):
+	def make_accrual_jv_entry(self, submitted_salary_slips):
 		self.backup_employees = self.employees
 
 		employee_type_map = self.separate_based_on_employee_type()
@@ -473,7 +472,7 @@ class CustomPayrollEntry(PayrollEntry):
 		for employee_type in employee_type_map:
 			self.earnings_payable_account = frappe.db.get_value("Employee Type", employee_type, "payroll_payable_account")
 			self.employees = employee_type_map[employee_type]
-			jv = self.create_accrual_jv_entry()
+			jv = self.create_accrual_jv_entry(submitted_salary_slips)
 
 
 		self.employees = self.backup_employees
@@ -493,13 +492,12 @@ class CustomPayrollEntry(PayrollEntry):
 	def get_company_component_total(
 		self,
 		component_type=None,
-		process_payroll_accounting_entry_based_on_employee=False,
+		employee_wise_accounting_enabled=False,
 	):
 		salary_components = [] #self.get_salary_components(component_type)
 
 
 		salary_slips = self.get_sal_slip_list(ss_status=1, as_dict=True)
-
 		if salary_slips:
 			ss = frappe.qb.DocType("Salary Slip")
 			ssd = frappe.qb.DocType("Company Contribution")
@@ -537,7 +535,7 @@ class CustomPayrollEntry(PayrollEntry):
 						key = (item.salary_component, cost_center)
 						component_dict[key] = component_dict.get(key, 0) + amount_against_cost_center
 
-					if process_payroll_accounting_entry_based_on_employee:
+					if employee_wise_accounting_enabled:
 						self.set_employee_based_payroll_payable_entries(
 							component_type, item.employee, amount_against_cost_center
 						)
@@ -547,9 +545,9 @@ class CustomPayrollEntry(PayrollEntry):
 			return account_details
 
 
-	def create_accrual_jv_entry(self):
+	def create_accrual_jv_entry(self, submitted_salary_slips):
 		self.check_permission("write")
-		process_payroll_accounting_entry_based_on_employee = frappe.db.get_single_value(
+		employee_wise_accounting_enabled = frappe.db.get_single_value(
 			"Payroll Settings", "process_payroll_accounting_entry_based_on_employee"
 		)
 		self.employee_based_payroll_payable_entries = {}
@@ -558,7 +556,7 @@ class CustomPayrollEntry(PayrollEntry):
 		earnings = (
 			self.get_salary_component_total(
 				component_type="earnings",
-				process_payroll_accounting_entry_based_on_employee=process_payroll_accounting_entry_based_on_employee,
+				employee_wise_accounting_enabled=employee_wise_accounting_enabled,
 			)
 			or {}
 		)
@@ -566,7 +564,7 @@ class CustomPayrollEntry(PayrollEntry):
 		deductions = (
 			self.get_salary_component_total(
 				component_type="deductions",
-				process_payroll_accounting_entry_based_on_employee=process_payroll_accounting_entry_based_on_employee,
+				employee_wise_accounting_enabled=employee_wise_accounting_enabled,
 			)
 			or {}
 		)
@@ -574,7 +572,7 @@ class CustomPayrollEntry(PayrollEntry):
 		company_contribution = (
 			self.get_company_component_total(
 				component_type="company_contribution",
-				process_payroll_accounting_entry_based_on_employee=process_payroll_accounting_entry_based_on_employee,
+				employee_wise_accounting_enabled=employee_wise_accounting_enabled,
 			)
 			or {}
 		)
@@ -638,7 +636,7 @@ class CustomPayrollEntry(PayrollEntry):
 			# )
 
 			# Payable amount
-			if process_payroll_accounting_entry_based_on_employee:
+			if employee_wise_accounting_enabled:
 				"""
 				employee_based_payroll_payable_entries = {
 						'HR-EMP-00004': {
@@ -701,7 +699,7 @@ class CustomPayrollEntry(PayrollEntry):
 				journal_entry.submit()
 				jv_name = journal_entry.name
 				self.update_reference(jv_name)
-				self.update_salary_slip_status(jv_name=jv_name)
+				self.set_journal_entry_in_salary_slips(submitted_salary_slips, jv_name=journal_entry.name)
 			except Exception as e:
 				if type(e) in (str, list, tuple):
 					frappe.msgprint(e)
@@ -746,7 +744,7 @@ class CustomPayrollEntry(PayrollEntry):
 				journal_entry.submit()
 				jv_name = journal_entry.name
 				self.update_reference(jv_name)
-				self.update_salary_slip_status(jv_name=jv_name)
+				# self.update_salary_slip_status(jv_name=jv_name)
 			except Exception as e:
 				if type(e) in (str, list, tuple):
 					frappe.msgprint(e)
