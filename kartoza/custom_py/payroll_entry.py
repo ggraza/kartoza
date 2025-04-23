@@ -472,6 +472,7 @@ class CustomPayrollEntry(PayrollEntry):
 		for employee_type in employee_type_map:
 			self.earnings_payable_account = frappe.db.get_value("Employee Type", employee_type, "payroll_payable_account")
 			self.employees = employee_type_map[employee_type]
+			submitted_salary_slips = self.get_sal_slip_list(ss_status=1, as_dict=True)
 			jv = self.create_accrual_jv_entry(submitted_salary_slips)
 
 
@@ -580,7 +581,6 @@ class CustomPayrollEntry(PayrollEntry):
 		payroll_payable_account = self.payroll_payable_account
 		jv_name = ""
 		precision = frappe.get_precision("Journal Entry Account", "debit_in_account_currency")
-
 
 		if earnings or deductions:
 			accounting_dimensions = get_accounting_dimensions() or []
