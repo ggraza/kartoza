@@ -108,6 +108,11 @@ class CustomSalarySlip(SalarySlip):
 
 		self.annual_bonus = self.get_bonus_amount()
 
+		if self.annual_bonus:
+			self.custom_provision_for_tax_on_annual_bonus = flt(
+				self.annual_bonus / 12, self.precision("custom_provision_for_tax_on_annual_bonus")
+			)
+
 		self.total_taxable_earnings += self.annual_bonus
 
 		self.total_taxable_earnings_without_full_tax_addl_components = (
