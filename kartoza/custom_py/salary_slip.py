@@ -246,18 +246,20 @@ class CustomSalarySlip(SalarySlip):
 		if not skip_tax_breakup_computation:
 			self.compute_income_tax_breakup()
 
-		current_eti_amount = get_eti_deduction(self) or 0
+		eti_amount = get_eti_deduction(self) or 0
 
 		# amount_before_eti_deduction = 0
 		# amount_after_eti_deduction=0
+		self.custom_monthly_eti = eti_amount.current_eti_amount
+		self.custom_carry_forwarded_eti_amount = eti_amount.carry_forwarded_eti_amount
+		self.custom_total_eti_amount = self.custom_monthly_eti + self.custom_carry_forwarded_eti_amount
 
 		tax_amount = self.tax_value or 0
-		# amount_before_eti_deduction = tax_amount
-		tax_amount -= current_eti_amount
-		# amount_after_eti_deduction = current_eti_amount - amount_before_eti_deduction
+		amount_before_eti_deduction = tax_amount
+		tax_amount -= self.custom_total_eti_amount
+		amount_after_eti_deduction = self.custom_total_eti_amount - amount_before_eti_deduction
 
-		self.custom_monthly_eti = current_eti_amount
-		# self.custom_carry_forwarding_eti_amount = amount_after_eti_deduction if amount_after_eti_deduction > 0 else 0
+		self.custom_carry_forwarding_eti_amount = amount_after_eti_deduction if amount_after_eti_deduction > 0 else 0
 
 		salary_structure_doc = frappe.get_doc("Salary Structure", self.salary_structure)
 
@@ -341,6 +343,8 @@ class CustomSalarySlip(SalarySlip):
 		self.total_structured_tax_amount = self.total_structured_tax_amount - (
 			medical_aid * total_months + tax_rebate * total_months
 		)
+		if self.total_structured_tax_amount < 0:
+			self.total_structured_tax_amount = 0
 
 		self.current_structured_tax_amount = (
 			self.total_structured_tax_amount - self.previous_total_paid_taxes
@@ -755,6 +759,7 @@ def get_medical_aid(self, dependant):
 
 def get_eti_deduction(self):
 	current_eti_amount = 0
+	carry_forwarded_eti_amount = 0
 	employee_details = (
 		frappe.db.get_value(
 			"Employee",
@@ -781,7 +786,7 @@ def get_eti_deduction(self):
 	):
 
 		prev_eti = frappe.get_all(
-			"Employee ETI Log", {"employee": self.employee}, pluck="name"
+			"Employee ETI Log", {"employee": self.employee, "docstatus":1, "date":["<", self.start_date]}, pluck="name"
 		)
 		prev_eti_count = len(prev_eti)
 		if prev_eti_count < 24:
@@ -868,22 +873,25 @@ def get_eti_deduction(self):
 											WHERE
 												employee = '{0}' AND
 												docstatus = 1 AND
-												date <= '{1}'
+												date < '{1}'
 											ORDER BY
 												date DESC
 											LIMIT 1
 										""".format(
-							self.employee, self.posting_date
+							self.employee, self.start_date
 						),
-						as_dict=True,
+						as_dict=True
 					)
 					if prev_eti_balance_details and prev_eti_balance_details[0].get(
 						"carry_forwarding_eti_amount"
 					):
-						current_eti_amount += prev_eti_balance_details[0].get(
+						carry_forwarded_eti_amount = prev_eti_balance_details[0].get(
 							"carry_forwarding_eti_amount"
 						)
-	return current_eti_amount
+	return frappe._dict({
+		"current_eti_amount":current_eti_amount,
+		"carry_forwarded_eti_amount":carry_forwarded_eti_amount
+	})
 
 
 def calculate_age(date_of_birth):
