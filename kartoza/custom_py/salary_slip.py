@@ -1,14 +1,13 @@
 import calendar
 import math
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Count, Sum
+from frappe.query_builder.functions import Sum
 from frappe.utils import (
 	add_days,
 	cint,
-	date_diff,
 	flt,
 	get_link_to_form,
 	getdate,
@@ -21,7 +20,6 @@ from hrms.payroll.doctype.employee_benefit_claim.employee_benefit_claim import (
 	get_benefit_claim_amount,
 )
 from hrms.payroll.doctype.payroll_period.payroll_period import (
-	get_payroll_period,
 	get_period_factor,
 )
 from hrms.payroll.doctype.salary_slip.salary_slip import (
@@ -31,9 +29,6 @@ from hrms.payroll.doctype.salary_slip.salary_slip import (
 	rounded,
 )
 from hrms.payroll.doctype.salary_slip.salary_slip_loan_utils import (
-	cancel_loan_repayment_entry,
-	make_loan_repayment_entry,
-	process_loan_interest_accruals,
 	set_loan_repayment,
 )
 from kartoza.custom_py.payroll_entry import (
