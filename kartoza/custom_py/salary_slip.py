@@ -2,8 +2,7 @@ import calendar
 import math
 from datetime import datetime, timedelta
 
-import frappe
-from frappe import _
+from erpnext.accounts.utils import get_account_currency
 from frappe.query_builder.functions import Sum
 from frappe.utils import (
 	add_days,
@@ -37,6 +36,10 @@ from kartoza.custom_py.payroll_entry import (
 	is_payroll_processed,
 )
 
+import frappe
+from erpnext import get_company_currency
+from frappe import _
+
 
 class CustomSalarySlip(SalarySlip):
 	def validate(self):
@@ -52,6 +55,26 @@ class CustomSalarySlip(SalarySlip):
 				)
 			)
 		self.validate_component_account()
+
+
+	def set_forex_employee(self):
+		self.is_forex_employee = False
+
+		company_currency = get_company_currency(self.company)
+
+		payroll_payable_account = frappe.db.get_value("Employee", self.employee, "payroll_payable_account")
+		if not payroll_payable_account:
+			return
+
+		bank_account = frappe.db.get_value("Bank Account", payroll_payable_account, "account")
+		if not bank_account:
+			return
+
+		account_currency = get_account_currency(bank_account)
+
+		self.is_forex_employee = company_currency != account_currency
+
+
 
 	def validate_component_account(self):
 		for component_type in ["earnings", "deductions"]:
@@ -90,6 +113,10 @@ class CustomSalarySlip(SalarySlip):
 		if tax_components and self.payroll_period and self.salary_structure:
 			self.tax_slab = self.get_income_tax_slabs()
 			self.compute_taxable_earnings_for_year()
+
+		taxable_earnings_till_date = self.total_taxable_earnings - self.future_structured_taxable_earnings
+		if self.is_forex_employee and taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold:
+			return
 
 		self._component_based_variable_tax = {}
 		for d in tax_components:
@@ -212,7 +239,7 @@ class CustomSalarySlip(SalarySlip):
 		# "end_date": (">=", self.end_date), "company": self.company })
 
 		# self.payroll_period = get_payroll_period(self.start_date, self.end_date, self.company)
-
+		self.set_forex_employee()
 		if self.salary_structure:
 			self.calculate_component_amounts("earnings")
 
@@ -310,6 +337,10 @@ class CustomSalarySlip(SalarySlip):
 
 		# Structured tax amount
 		eval_locals, default_data = self.get_data_for_eval()
+		if self.is_forex_employee:
+			self.total_taxable_earnings_without_full_tax_addl_components = (
+				self.total_taxable_earnings_without_full_tax_addl_components - self.tax_slab.foreign_tax_threshold
+			)
 		self.total_structured_tax_amount, __ = calculate_tax_by_tax_slab(
 			self.total_taxable_earnings_without_full_tax_addl_components,
 			self.tax_slab,
@@ -325,6 +356,10 @@ class CustomSalarySlip(SalarySlip):
 		# Total taxable earnings with additional earnings with full tax
 		self.full_tax_on_additional_earnings = 0.0
 		if self.current_additional_earnings_with_full_tax:
+			if self.is_forex_employee:
+				self.total_taxable_earnings = (
+					self.total_taxable_earnings - self.tax_slab.foreign_tax_threshold
+				)
 			self.total_tax_amount, __ = calculate_tax_by_tax_slab(
 				self.total_taxable_earnings,
 				self.tax_slab,

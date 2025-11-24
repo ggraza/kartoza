@@ -437,7 +437,8 @@ def make_custom_fields():
 		'Payroll Settings': [],
 		"Employee":[],
 		"Additional Salary":[],
-		"Salary Structure Assignment":[]
+		"Salary Structure Assignment":[],
+		"Income Tax Slab": []
 	}
 
 	if not frappe.get_meta("HR Settings").get_field("amount_per_kilometer"):
@@ -463,6 +464,10 @@ def make_custom_fields():
 	if not frappe.get_meta("Salary Structure Assignment").get_field("annual_bonus"):
 		custom_fields["Salary Structure Assignment"].append(dict(fieldname="annual_bonus", label="Annual Bonus",
 						fieldtype="Currency", insert_after="base", allow_on_submit=True))
+
+	if not frappe.get_meta("Income Tax Slab").get_field("foreign_tax_threshold"):
+		custom_fields["Income Tax Slab"].append(dict(fieldname="foreign_tax_threshold", label="Foreign Tax Threshold",
+						fieldtype="Currency", insert_after="company", allow_on_submit=True))
 
 	create_custom_fields(custom_fields)
 	rename_duplicate_fields(custom_fields)
