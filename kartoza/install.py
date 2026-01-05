@@ -457,6 +457,19 @@ def make_custom_fields():
 		custom_fields["Employee"].append(dict(fieldname='hours_per_month', label='Hours Per Month',
 						fieldtype='Float', insert_after='payroll_payable_account'))
 
+	if not frappe.get_meta("Employee").get_field("eligible_for_paye"):
+		custom_fields["Employee"].append(dict(fieldname='eligible_for_paye', label='Eligible for PAYE',
+						fieldtype='Check', insert_after='hours_per_month', description='''
+						Enable this only if the employee qualifies under <strong>any one</strong> of the following conditions.<br>
+
+						<strong>The foreign employee must be physically present in South Africa for:</strong>
+						<ul>
+							<li>91 or more days in the current year</li>
+							<li>91 or more days in each of the previous 5 years</li>
+							<li>A total of 915 or more days during those 5 years</li>
+						</ul>
+						'''))
+
 	if not frappe.get_meta("Additional Salary").get_field("is_company_contribution"):
 		custom_fields["Additional Salary"].append(dict(fieldname='is_company_contribution', label='Is Company Contribution',
 						fieldtype='Check', insert_after='column_break_8'))
