@@ -58,21 +58,25 @@ class CustomSalarySlip(SalarySlip):
 
 
 	def set_forex_employee(self):
-		self.is_forex_employee = False
+		self.is_eligible_for_paye = False
+
+		is_eligible = frappe.db.get_value("Employee", self.employee, "eligible_for_paye")
+		if not cint(is_eligible):
+			return
 
 		company_currency = get_company_currency(self.company)
 
-		payroll_payable_account = frappe.db.get_value("Employee", self.employee, "payroll_payable_account")
+		payroll_payable_account = frappe.get_cached_value("Employee", self.employee, "payroll_payable_account")
 		if not payroll_payable_account:
 			return
 
-		bank_account = frappe.db.get_value("Bank Account", payroll_payable_account, "account")
+		bank_account = frappe.get_cached_value("Bank Account", payroll_payable_account, "account")
 		if not bank_account:
 			return
 
 		account_currency = get_account_currency(bank_account)
 
-		self.is_forex_employee = company_currency != account_currency
+		self.is_eligible_for_paye = company_currency != account_currency
 
 
 
@@ -115,7 +119,8 @@ class CustomSalarySlip(SalarySlip):
 			self.compute_taxable_earnings_for_year()
 
 		taxable_earnings_till_date = self.total_taxable_earnings - self.future_structured_taxable_earnings
-		if self.is_forex_employee and taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold:
+
+		if not self.is_eligible_for_paye or (self.is_eligible_for_paye and taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold):
 			return
 
 		self._component_based_variable_tax = {}
@@ -337,7 +342,7 @@ class CustomSalarySlip(SalarySlip):
 
 		# Structured tax amount
 		eval_locals, default_data = self.get_data_for_eval()
-		if self.is_forex_employee:
+		if self.is_eligible_for_paye:
 			self.total_taxable_earnings_without_full_tax_addl_components = (
 				self.total_taxable_earnings_without_full_tax_addl_components - self.tax_slab.foreign_tax_threshold
 			)
@@ -356,7 +361,7 @@ class CustomSalarySlip(SalarySlip):
 		# Total taxable earnings with additional earnings with full tax
 		self.full_tax_on_additional_earnings = 0.0
 		if self.current_additional_earnings_with_full_tax:
-			if self.is_forex_employee:
+			if self.is_eligible_for_paye:
 				self.total_taxable_earnings = (
 					self.total_taxable_earnings - self.tax_slab.foreign_tax_threshold
 				)
