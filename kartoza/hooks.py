@@ -127,6 +127,9 @@ doc_events = {
 	"Journal Entry": {
 		"on_trash": "kartoza.doc_events.jv_on_trash",
 		"on_cancel": "kartoza.doc_events.jv_on_cancel"
+	},
+	"Employee": {
+		"onload": "kartoza.doc_events.employee_onload"
 	}
 }
 

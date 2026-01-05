@@ -8,5 +8,9 @@ frappe.ui.form.on("Employee", {
 				}
 			};
 		});
+
+		if(frm.doc.company && frm.doc.payroll_payable_account){
+			frm.toggle_display("eligible_for_paye", frm.doc.__onload && frm.doc.__onload.is_forex_employee);
+		}
 	}
 })

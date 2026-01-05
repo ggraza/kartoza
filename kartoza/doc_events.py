@@ -1,4 +1,6 @@
 import frappe
+from erpnext.accounts.utils import get_account_currency
+from erpnext import get_company_currency
 
 def jv_on_trash(doc, event):
 	if doc.docstatus == 0:
@@ -14,3 +16,19 @@ def update_employee_jv(doc):
 				frappe.db.set_value("Payroll Employee Detail", {"parent": row.reference_name, "employee": row.party}, "custom_is_bank_entry_creaeted", 0)
 			elif row.custom_is_company_contribution:
 				frappe.db.set_value("Payroll Employee Detail", {"parent": row.reference_name, "employee": row.party}, "custom_is_company_contribution_created", 0)
+
+def employee_onload(doc, event):
+	doc.set_onload("is_forex_employee", False)
+	if not (doc.company and doc.payroll_payable_account):
+		return
+
+	company_currency = get_company_currency(doc.company)
+
+	payment_account = frappe.get_cached_value("Bank Account", doc.payroll_payable_account, "account")
+	if not payment_account:
+		return
+
+	payment_account_currency = get_account_currency(payment_account)
+
+	if company_currency != payment_account_currency:
+		doc.set_onload("is_forex_employee", True)
