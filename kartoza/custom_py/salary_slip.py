@@ -115,10 +115,13 @@ class CustomSalarySlip(SalarySlip):
 			self.tax_slab = self.get_income_tax_slabs()
 			self.compute_taxable_earnings_for_year()
 
-		taxable_earnings_till_date = self.total_taxable_earnings - self.future_structured_taxable_earnings
-
-		if (self.is_forex_employee and not self.is_eligible_for_paye) or (self.is_eligible_for_paye and taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold):
-			return
+		if self.is_forex_employee:
+			if self.is_eligible_for_paye:
+				taxable_earnings_till_date = self.total_taxable_earnings - self.future_structured_taxable_earnings
+				if taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold:
+					return
+			else:
+				return
 
 		self._component_based_variable_tax = {}
 		for d in tax_components:
@@ -339,7 +342,7 @@ class CustomSalarySlip(SalarySlip):
 
 		# Structured tax amount
 		eval_locals, default_data = self.get_data_for_eval()
-		if self.is_eligible_for_paye:
+		if self.is_forex_employee and self.is_eligible_for_paye:
 			self.total_taxable_earnings_without_full_tax_addl_components = (
 				self.total_taxable_earnings_without_full_tax_addl_components - self.tax_slab.foreign_tax_threshold
 			)
@@ -358,10 +361,11 @@ class CustomSalarySlip(SalarySlip):
 		# Total taxable earnings with additional earnings with full tax
 		self.full_tax_on_additional_earnings = 0.0
 		if self.current_additional_earnings_with_full_tax:
-			if self.is_eligible_for_paye:
+			if self.is_forex_employee and self.is_eligible_for_paye:
 				self.total_taxable_earnings = (
 					self.total_taxable_earnings - self.tax_slab.foreign_tax_threshold
 				)
+
 			self.total_tax_amount, __ = calculate_tax_by_tax_slab(
 				self.total_taxable_earnings,
 				self.tax_slab,
