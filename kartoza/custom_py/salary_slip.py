@@ -58,11 +58,8 @@ class CustomSalarySlip(SalarySlip):
 
 
 	def set_forex_employee(self):
-		self.is_eligible_for_paye = False
-
-		is_eligible = frappe.db.get_value("Employee", self.employee, "eligible_for_paye")
-		if not cint(is_eligible):
-			return
+		self.is_forex_employee = False
+		self.is_eligible_for_paye = frappe.db.get_value("Employee", self.employee, "eligible_for_paye")
 
 		company_currency = get_company_currency(self.company)
 
@@ -76,7 +73,7 @@ class CustomSalarySlip(SalarySlip):
 
 		account_currency = get_account_currency(bank_account)
 
-		self.is_eligible_for_paye = company_currency != account_currency
+		self.is_forex_employee = company_currency != account_currency
 
 
 
@@ -107,12 +104,12 @@ class CustomSalarySlip(SalarySlip):
 			else:
 				self.other_deduction_components.append(d.salary_component)
 
-		# if not tax_components:
-		# 	tax_components = [
-		# 		d.name
-		# 		for d in frappe.get_all("Salary Component", filters={"variable_based_on_taxable_salary": 1})
-		# 		if d.name not in self.other_deduction_components
-		# 	]
+		if not tax_components and self.is_forex_employee:
+			tax_components = [
+				d.name
+				for d in frappe.get_all("Salary Component", filters={"variable_based_on_taxable_salary": 1})
+				if d.name not in self.other_deduction_components
+			]
 
 		if tax_components and self.payroll_period and self.salary_structure:
 			self.tax_slab = self.get_income_tax_slabs()
@@ -120,7 +117,7 @@ class CustomSalarySlip(SalarySlip):
 
 		taxable_earnings_till_date = self.total_taxable_earnings - self.future_structured_taxable_earnings
 
-		if not self.is_eligible_for_paye or (self.is_eligible_for_paye and taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold):
+		if (self.is_forex_employee and not self.is_eligible_for_paye) or (self.is_eligible_for_paye and taxable_earnings_till_date <= self.tax_slab.foreign_tax_threshold):
 			return
 
 		self._component_based_variable_tax = {}
