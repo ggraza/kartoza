@@ -15,3 +15,5 @@ execute:frappe.db.set_value("Company Contribution", {"parenttype": "Salary Struc
 kartoza.patches.remove_duplicate_fields
 kartoza.patches.update_annual_bonus
 kartoza.patches.update_carry_forwarding_eti_amount
+execute:frappe.db.set_value("Salary Component", "3602 Non Taxable Income Basic", "is_tax_applicable", 1, update_modified=False)
+execute:frappe.db.set_value("Salary Detail", {"salary_component": "3602 Non Taxable Income Basic"}, "is_tax_applicable", 1, update_modified=False)
