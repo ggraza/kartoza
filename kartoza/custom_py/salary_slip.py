@@ -1,12 +1,11 @@
 import calendar
-import math
 from datetime import datetime, timedelta
 
 from erpnext.accounts.utils import get_account_currency
 from frappe.query_builder.functions import Sum
 from frappe.utils import (
-	add_days,
 	cint,
+	date_diff,
 	flt,
 	get_link_to_form,
 	getdate,
@@ -505,16 +504,26 @@ class CustomSalarySlip(SalarySlip):
 		if isinstance(self.end_date, str):
 			self.end_date = datetime.strptime(self.end_date, "%Y-%m-%d").date()
 
-		# working_days = date_diff(self.end_date, self.start_date) + 1
-		start_date = self.start_date.replace(month=1).replace(day=1)
-		end_date = self.end_date.replace(month=12).replace(day=31)
-		total_no_days = get_total_days(start_date, end_date + timedelta(days=1))
-		total_no_weekend_days = get_total_weekend_days(start_date, end_date)
-		working_days = (total_no_days - total_no_weekend_days) / 12
+		include_holidays = cint(payroll_settings.include_holidays_in_total_working_days)
 
-		working_days_list = [
-			add_days(self.start_date, i) for i in range(math.ceil(working_days))
-		]
+		if include_holidays:
+			working_days = (date_diff(self.end_date, self.start_date) + 1)
+		else:
+			start_date = self.start_date.replace(month=1).replace(day=1)
+			end_date = self.end_date.replace(month=12).replace(day=31)
+			total_no_days = get_total_days(start_date, end_date + timedelta(days=1))
+			total_no_weekend_days = get_total_weekend_days(start_date, end_date)
+			working_days = (total_no_days - total_no_weekend_days) / 12
+
+
+		actual_start = getdate(self.actual_start_date)
+		actual_end = getdate(self.actual_end_date)
+		working_days_list = []
+		current = actual_start
+		while current <= actual_end:
+			if include_holidays or current.weekday() < 5:
+				working_days_list.append(current)
+			current += timedelta(days=1)
 
 		if for_preview:
 			self.total_working_days = working_days
@@ -522,13 +531,6 @@ class CustomSalarySlip(SalarySlip):
 			return
 
 		holidays = self.get_holidays_for_employee(self.start_date, self.end_date)
-
-		if not cint(payroll_settings.include_holidays_in_total_working_days):
-			# working_days_list = [i for i in working_days_list if i not in holidays]
-
-			# working_days -= len(holidays)
-			if working_days < 0:
-				frappe.throw(_("There are more holidays than working days this month."))
 
 		if not payroll_settings.payroll_based_on:
 			frappe.throw(_("Please set Payroll based on in Payroll settings"))
@@ -574,13 +576,52 @@ class CustomSalarySlip(SalarySlip):
 				)
 				self.absent_days += unmarked_days  # will be treated as absent
 				self.payment_days -= unmarked_days
-			if payment_days > working_days:
+
+			# Cap payment_days at total_working_days (21.75) after LWP deduction
+			if self.payment_days > working_days:
 				self.payment_days = working_days
 
 			if self.payment_days < 0:
 				self.payment_days = 0
 		else:
 			self.payment_days = 0
+
+	def get_payment_days(self, include_holidays_in_total_working_days):
+		if self.joining_date and self.joining_date > getdate(self.end_date):
+			return 0
+
+		if self.relieving_date:
+			employee_status = frappe.db.get_value("Employee", self.employee, "status")
+			if self.relieving_date < getdate(self.start_date) and employee_status != "Left":
+				frappe.throw(
+					_("Employee {0} relieved on {1} must be set as 'Left'").format(
+						get_link_to_form("Employee", self.employee), self.relieving_date
+					)
+				)
+
+		start = getdate(self.actual_start_date)
+		end = getdate(self.actual_end_date)
+
+		is_full_month = (
+			start <= getdate(self.start_date)
+			and end >= getdate(self.end_date)
+		)
+
+
+		if is_full_month:
+			return self.total_working_days
+
+		if cint(include_holidays_in_total_working_days):
+			return date_diff(end, start) + 1
+
+		payment_days = 0
+		current = start
+		while current <= end:
+			if current.weekday() < 5:
+				payment_days += 1
+			current += timedelta(days=1)
+
+		return payment_days
 
 	def get_taxable_earnings_for_prev_period(
 		self, start_date, end_date, allow_tax_exemption=False
