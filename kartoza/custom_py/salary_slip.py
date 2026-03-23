@@ -515,6 +515,8 @@ class CustomSalarySlip(SalarySlip):
 			total_no_weekend_days = get_total_weekend_days(start_date, end_date)
 			working_days = (total_no_days - total_no_weekend_days) / 12
 
+		working_days = min(working_days, 21.75)
+
 
 		actual_start = getdate(self.actual_start_date)
 		actual_end = getdate(self.actual_end_date)
@@ -611,17 +613,7 @@ class CustomSalarySlip(SalarySlip):
 		if is_full_month:
 			return self.total_working_days
 
-		if cint(include_holidays_in_total_working_days):
-			return date_diff(end, start) + 1
-
-		payment_days = 0
-		current = start
-		while current <= end:
-			if current.weekday() < 5:
-				payment_days += 1
-			current += timedelta(days=1)
-
-		return payment_days
+		return date_diff(end, start) + 1
 
 	def get_taxable_earnings_for_prev_period(
 		self, start_date, end_date, allow_tax_exemption=False
