@@ -110,6 +110,7 @@ class CustomSalarySlip(SalarySlip):
 				if d.name not in self.other_deduction_components
 			]
 
+		self._component_based_variable_tax = {}
 		if tax_components and self.payroll_period and self.salary_structure:
 			self.tax_slab = self.get_income_tax_slabs()
 			self.compute_taxable_earnings_for_year()
@@ -121,6 +122,11 @@ class CustomSalarySlip(SalarySlip):
 					return
 			else:
 				return
+
+		if self.handle_additional_salary_tax_component():
+			self._component_based_variable_tax.setdefault(self.additional_salary_component, {})
+			self.calculate_variable_tax(self.additional_salary_component, True)
+			return
 
 		self._component_based_variable_tax = {}
 		for d in tax_components:
@@ -326,7 +332,7 @@ class CustomSalarySlip(SalarySlip):
 		# self.set_net_pay()
 		# self.compute_income_tax_breakup()
 
-	def calculate_variable_tax(self, tax_component):
+	def calculate_variable_tax(self, tax_component, has_additional_salary_tax_component=False):
 		self.previous_total_paid_taxes = self.get_tax_paid_in_period(
 			self.payroll_period.start_date, self.start_date, tax_component
 		)
@@ -352,9 +358,12 @@ class CustomSalarySlip(SalarySlip):
 			eval_locals,
 		)
 
-		self.current_structured_tax_amount = (
-			self.total_structured_tax_amount - self.previous_total_paid_taxes
-		) / self.remaining_sub_periods
+		if has_additional_salary_tax_component:
+			self.current_structured_tax_amount = self.additional_salary_amount
+		else:
+			self.current_structured_tax_amount = (
+				self.total_structured_tax_amount - self.previous_total_paid_taxes
+			) / self.remaining_sub_periods
 		self.tax_value = self.current_structured_tax_amount
 
 		# Total taxable earnings with additional earnings with full tax
@@ -385,11 +394,16 @@ class CustomSalarySlip(SalarySlip):
 			self.total_structured_tax_amount - self.previous_total_paid_taxes
 		) / self.remaining_sub_periods
 
-		current_tax_amount = (
-			self.current_structured_tax_amount + self.full_tax_on_additional_earnings
+		self.current_tax_amount = max(
+			0,
+			flt(
+				self.current_structured_tax_amount
+				if has_additional_salary_tax_component
+				else (self.current_structured_tax_amount + self.full_tax_on_additional_earnings)
+			),
 		)
-		if flt(current_tax_amount) < 0:
-			current_tax_amount = 0
+		if flt(self.current_tax_amount) < 0:
+			self.current_tax_amount = 0
 
 		self._component_based_variable_tax[tax_component].update(
 			{
@@ -397,10 +411,9 @@ class CustomSalarySlip(SalarySlip):
 				"total_structured_tax_amount": self.total_structured_tax_amount,
 				"current_structured_tax_amount": self.current_structured_tax_amount,
 				"full_tax_on_additional_earnings": self.full_tax_on_additional_earnings,
-				"current_tax_amount": current_tax_amount,
+				"current_tax_amount": self.current_tax_amount,
 			}
 		)
-		return current_tax_amount
 
 	def add_employee_benefits(self):
 		for struct_row in self._salary_structure_doc.get("earnings"):
