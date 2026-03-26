@@ -129,11 +129,13 @@ class CustomSalarySlip(SalarySlip):
 			return
 
 		self._component_based_variable_tax = {}
-		for d in tax_components:
-			self._component_based_variable_tax.setdefault(d, {})
-			tax_amount = self.calculate_variable_based_on_taxable_salary(d)
-			tax_row = get_salary_component_data(d)
-			self.update_component_row(tax_row, tax_amount, "deductions")
+		for tax_component in tax_components:
+			self._component_based_variable_tax.setdefault(tax_component, {})
+			self.calculate_variable_based_on_taxable_salary(tax_component)
+			if self._component_based_variable_tax[tax_component]:
+				tax_amount = self._component_based_variable_tax[tax_component]["current_tax_amount"]
+				tax_row = get_salary_component_data(tax_component)
+				self.update_component_row(tax_row, tax_amount, "deductions")
 
 	def compute_taxable_earnings_for_year(self):
 		super().compute_taxable_earnings_for_year()
