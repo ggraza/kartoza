@@ -325,8 +325,8 @@ class CustomSalarySlip(SalarySlip):
 		total_company_contribution = 0
 		for i in self.company_contribution:
 			total_company_contribution += i.amount or 0
-		
-		self.taxable_earnings = self.taxable_value_with_deduction
+
+		self.taxable_value = self.taxable_value_with_deduction
 		self.total_company_contribution = total_company_contribution
 
 		self.total_cost = self.gross_pay + self.total_company_contribution
@@ -473,7 +473,7 @@ class CustomSalarySlip(SalarySlip):
 			else:
 				taxable_income.taxable_earnings -= tax
 
-		self.taxable_earnings = taxable_income.taxable_earnings
+		self.taxable_value = taxable_income.taxable_earnings
 		self.taxable_value_with_deduction = 0
 
 		ra = get_retirement_annuity(self)
