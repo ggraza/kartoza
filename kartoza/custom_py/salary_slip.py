@@ -325,6 +325,8 @@ class CustomSalarySlip(SalarySlip):
 		total_company_contribution = 0
 		for i in self.company_contribution:
 			total_company_contribution += i.amount or 0
+		
+		self.taxable_earnings = self.taxable_value_with_deduction
 		self.total_company_contribution = total_company_contribution
 
 		self.total_cost = self.gross_pay + self.total_company_contribution
@@ -471,6 +473,9 @@ class CustomSalarySlip(SalarySlip):
 			else:
 				taxable_income.taxable_earnings -= tax
 
+		self.taxable_earnings = taxable_income.taxable_earnings
+		self.taxable_value_with_deduction = 0
+
 		ra = get_retirement_annuity(self)
 		if ra:
 			ra_percent = ra.ra_amount / taxable_income.taxable_earnings * 100
@@ -483,7 +488,7 @@ class CustomSalarySlip(SalarySlip):
 		# taxable_income.taxable_earnings += taxable_income.flexi_benefits
 		taxable_income.flexi_benefits = 0
 		if based_on_payment_days:
-			self.taxable_value = (
+			self.taxable_value_with_deduction = (
 				taxable_income.taxable_earnings + taxable_income.additional_income
 			)
 		return taxable_income
