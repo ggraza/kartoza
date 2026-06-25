@@ -473,7 +473,7 @@ class CustomSalarySlip(SalarySlip):
 			else:
 				taxable_income.taxable_earnings -= tax
 
-		self.taxable_value = taxable_income.taxable_earnings
+		self.taxable_value = taxable_income.taxable_earnings + taxable_income.additional_income
 		self.taxable_value_with_deduction = 0
 
 		ra = get_retirement_annuity(self)
